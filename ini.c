@@ -1,8 +1,9 @@
 /* inih -- simple .INI file parser
 
-inih is released under the New BSD license (see LICENSE.txt). Go to the project
-home page for more info:
-
+Forked by Fabio Pozzi <pozzi.fabio@gmail.com>
+inih is released under the New BSD license (see LICENSE.txt). 
+Go to the project
+The original project home page for more info is:
 http://code.google.com/p/inih/
 
 */
@@ -10,12 +11,9 @@ http://code.google.com/p/inih/
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "ini.h"
-
-#if !INI_USE_STACK
-#include <stdlib.h>
-#endif
 
 #define MAX_SECTION 50
 #define MAX_NAME 50
@@ -65,11 +63,7 @@ int ini_parse_file(FILE* file,
                    void* user)
 {
     /* Uses a fair bit of stack (use heap instead if you need to) */
-#if INI_USE_STACK
     char line[INI_MAX_LINE];
-#else
-    char* line;
-#endif
     char section[MAX_SECTION] = "";
     char prev_name[MAX_NAME] = "";
 
@@ -92,13 +86,11 @@ int ini_parse_file(FILE* file,
         lineno++;
 
         start = line;
-#if INI_ALLOW_BOM
         if (lineno == 1 && (unsigned char)start[0] == 0xEF &&
                            (unsigned char)start[1] == 0xBB &&
                            (unsigned char)start[2] == 0xBF) {
             start += 3;
         }
-#endif
         start = lskip(rstrip(start));
 
         if (*start == ';' || *start == '#') {
@@ -172,5 +164,144 @@ int ini_parse(const char* filename,
         return -1;
     error = ini_parse_file(file, handler, user);
     fclose(file);
+    return error;
+}
+
+int replace_value(FILE *file, const char* filename, const char* val_section, const char *val_name, const char *new_value )
+{
+ 
+    char line[INI_MAX_LINE];
+    char section[MAX_SECTION] = "";
+    char prev_name[MAX_NAME] = "";
+
+    char* start;
+    char* end;
+    char* name;
+    char* value;
+    int lineno = 0;
+    int error = 0;
+    int ret,replace=0;
+    FILE *newfile;
+    char *new_filename, tempfilename[L_tmpnam];
+    /* Scan through file line by line */
+    
+    tmpnam_r(tempfilename);
+    newfile = fopen(tempfilename, "w");
+    if(!newfile){
+            printf("temp filename doesn't exist");
+            return -1;
+    }
+    new_filename = malloc(strlen(filename)+5);// ".bak" is 4 +\0 = 5
+    while (fgets(line, INI_MAX_LINE, file) != NULL) {
+        lineno++;
+
+        start = line;
+        if (lineno == 1 && (unsigned char)start[0] == 0xEF &&
+                           (unsigned char)start[1] == 0xBB &&
+                           (unsigned char)start[2] == 0xBF) {
+            start += 3;
+        }
+        start = lskip(rstrip(start));
+
+        if (*start == ';' || *start == '#') {
+            /* Per Python ConfigParser, allow '#' comments at start of line */
+                ret = fprintf(newfile, "%s\n", line);
+                if(ret == EOF)
+                        return -1; // TODO: improve error handling
+        }
+        else if (*start == '[') {
+            /* A "[section]" line */
+            end = find_char_or_comment(start + 1, ']');
+            if (*end == ']') {
+                /*printf("linea:%s\n", line);*/
+                ret = fprintf(newfile, "%s\n", line);
+                if(ret == EOF)
+                        return -1; // TODO: improve error handling
+                *end = '\0';
+                strncpy0(section, start + 1, sizeof(section));
+                *prev_name = '\0';
+                /*  copy line inside new file */    
+            }
+            else if (!error) {
+                /* No ']' found on section line */
+                error = lineno;
+            }
+        }
+        else if (*start && *start != ';') {
+            /* Not a comment, must be a name[=:]value pair */
+            end = find_char_or_comment(start, '=');
+            if (*end != '=') {
+                end = find_char_or_comment(start, ':');
+            }
+            if (*end == '=' || *end == ':') {
+                *end = '\0';
+                name = rstrip(start);
+                value = lskip(end + 1);
+                end = find_char_or_comment(value, '\0');
+                if (*end == ';')
+                    *end = '\0';
+                rstrip(value);
+                /* TODO: copiarti il commento da end+1 */
+
+                /* Valid name[=:]value pair found, call handler */
+                strncpy0(prev_name, name, sizeof(prev_name));
+                /*  TODO: refactor me */
+                if(!strcmp(section, val_section)){
+                        /*  we are in the right section */
+                        if(!strcmp(name, val_name)){
+                                /*also the name is right,
+                                 * thus we can replace the line
+                                 */
+                               replace=1;
+                        }
+                        
+                }
+                if(replace){
+                        memset(line, 0, INI_MAX_LINE); // not needed
+                        snprintf(line, INI_MAX_LINE, "%s=%s", val_name, new_value);
+                        replace=0;
+                }
+                else{
+                        // I have to recreate the original row
+                        snprintf(line, INI_MAX_LINE, "%s=%s", prev_name, value);
+                }
+                /*ret = printf("%s\n", line);*/
+                ret = fprintf(newfile, "%s\n", line);
+                if(ret == EOF)
+                        return -1; // TODO: improve error handling
+            }
+            else if (!error) {
+                /* No '=' or ':' found on name[=:]value line */
+                error = lineno;
+            }
+        }
+    }
+    fclose(file);
+    /*  concatenate filename and new extension */
+    new_filename[0]='\0';
+    strcat(new_filename,filename);
+    strcat(new_filename,".bak");
+    remove(new_filename); //remove an existing file with the same name 
+    rename(filename, new_filename); 
+    fclose(newfile);
+    rename(tempfilename, filename); 
+    
+    return error;
+}
+
+int main(int argc, char **argv)
+{
+    FILE* file;
+    int error;
+    char *filename = "pippo.ini";
+
+    if(argc < 4){
+            printf("mancano dei parametri\n");
+            return -1;
+    }
+    file = fopen(filename, "r");
+    if (!file)
+        return -1;
+    error = replace_value(file, filename, argv[1], argv[2], argv[3]);
     return error;
 }
