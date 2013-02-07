@@ -338,7 +338,7 @@ int main(int argc, char **argv)
             }
     }
     if(!filename || !section || !name || !value){
-            printf("daicazzo");
+            printf("At least one argument is NULL");
             return 0;
     }
     file = fopen(filename, "r");
