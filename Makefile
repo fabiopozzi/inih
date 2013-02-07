@@ -1,3 +1,5 @@
+# Inspired to the ex28 of learn C the hard way 
+# http://c.learncodethehardway.org/book/ex28.html 
 CFLAGS=-g -O2 -Wall -Wextra -Isrc -rdynamic -DNDEBUG $(OPTFLAGS)
 LIBS=$(OPTLIBS)
 PREFIX?=/usr/local
