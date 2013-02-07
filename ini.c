@@ -12,11 +12,14 @@ http://code.google.com/p/inih/
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "ini.h"
 
 #define MAX_SECTION 50
 #define MAX_NAME 50
+#define RES_DIR "."
 
 /* Strip whitespace chars off end of given string, in place. Return s. */
 static char* rstrip(char* s)
@@ -182,10 +185,10 @@ int replace_value(FILE *file, const char* filename, const char* val_section, con
     int error = 0;
     int ret,replace=0;
     FILE *newfile;
-    char *new_filename, tempfilename[L_tmpnam];
+    char *new_filename, *tempfilename;
     /* Scan through file line by line */
     
-    tmpnam_r(tempfilename);
+    tempfilename= tempnam(RES_DIR, NULL);
     newfile = fopen(tempfilename, "w");
     if(!newfile){
             printf("temp filename doesn't exist");
@@ -206,8 +209,10 @@ int replace_value(FILE *file, const char* filename, const char* val_section, con
         if (*start == ';' || *start == '#') {
             /* Per Python ConfigParser, allow '#' comments at start of line */
                 ret = fprintf(newfile, "%s\n", line);
-                if(ret == EOF)
+                if(ret == EOF){
+                        printf("qualcosa non va\n");
                         return -1; // TODO: improve error handling
+                }
         }
         else if (*start == '[') {
             /* A "[section]" line */
@@ -284,24 +289,63 @@ int replace_value(FILE *file, const char* filename, const char* val_section, con
     remove(new_filename); //remove an existing file with the same name 
     rename(filename, new_filename); 
     fclose(newfile);
-    rename(tempfilename, filename); 
+    ret = rename(tempfilename, filename);
+    if(ret < 0){
+            strerror(errno);
+            return -1;
+    }
+    
     
     return error;
+}
+
+void print_help(void)
+{
+        printf("ini_demo: -f <filename> -s <section name> -n <key name> -v <new value> \n");
 }
 
 int main(int argc, char **argv)
 {
     FILE* file;
-    int error;
-    char *filename = "pippo.ini";
+    int error,ret;
+    char *filename = NULL;
+    char *section = NULL;
+    char *name = NULL;
+    char *value = NULL;
 
     if(argc < 4){
             printf("mancano dei parametri\n");
-            return -1;
+            print_help();
+            return 0;
+    }
+    while((ret = getopt(argc, argv, "f:s:n:v:")) != -1){
+            switch(ret)
+            {
+            case 'f':
+                    filename = strdup(optarg);
+                    break;
+            case 's':
+                    section = strdup(optarg);
+                    break;
+            case 'n':
+                    name = strdup(optarg);
+                    break;
+            case 'v':
+                    value = strdup(optarg);
+                    break;
+            default:
+                    return -1;
+            }
+    }
+    if(!filename || !section || !name || !value){
+            printf("daicazzo");
+            return 0;
     }
     file = fopen(filename, "r");
-    if (!file)
+    if (!file){
+        printf("file not found, exiting\n");
         return -1;
-    error = replace_value(file, filename, argv[1], argv[2], argv[3]);
+    }
+    error = replace_value(file, filename, section, name, value);
     return error;
 }
